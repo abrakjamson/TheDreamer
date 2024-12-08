@@ -28,6 +28,7 @@ contemplator_topic_type = "ContemplatorAgent"
 rectifier_topic_type = "RectifierAgent"
 user_topic_type = "User"
 
+starting_sense_of_self = "You are learning."
 dreamer_prompt_part1 = """You are the Dreamer.
 These are statements you made about yourself:
 """
@@ -76,6 +77,9 @@ def get_random_words(n=3):
 
 @type_subscription(topic_type=dreamer_topic_type)
 class DreamerAgent(RoutedAgent):
+    """
+    The Dreamer agent takes sensory input of random words and crafts narrative around them.
+    """
     def __init__(self, model_client: ChatCompletionClient) -> None:
         super().__init__("A dreaming agent.")
         self._model_client = model_client
@@ -104,6 +108,9 @@ class DreamerAgent(RoutedAgent):
 
 @type_subscription(topic_type=contemplator_topic_type)
 class ContemplatorAgent(RoutedAgent):
+    """
+    The Contemplator thinks about the Dreamer's dreams to devise lessons and potential learnings.
+    """
     def __init__(self, model_client: ChatCompletionClient) -> None:
         super().__init__("A contemplating agent.")
         self._model_client = model_client
@@ -132,6 +139,10 @@ class ContemplatorAgent(RoutedAgent):
 
 @type_subscription(topic_type=rectifier_topic_type)
 class RectifierAgent(RoutedAgent):
+    """
+    The Rectifier determines what learnings are compatible with its existing sense of self.
+    It updates how it thinks about itself based on what it has learned.
+    """
     def __init__(self, model_client: ChatCompletionClient) -> None:
         super().__init__("A rectifying agent.")
         self._model_client = model_client
@@ -164,6 +175,7 @@ class RectifierAgent(RoutedAgent):
         if self.iteration_count < self.max_iterations:
             # Generate new random words to send to Dreamer
             random_tokens = get_random_words(n=3)
+            print(f"New sensory input: {random_tokens}")
             await self.publish_message(
                 Message(content=random_tokens),
                 topic_id=TopicId(dreamer_topic_type, source=self.id.key)
@@ -178,6 +190,9 @@ class RectifierAgent(RoutedAgent):
 
 @type_subscription(topic_type=user_topic_type)
 class UserAgent(RoutedAgent):
+    """
+    The User is only used for outputting the final results at this time.
+    """
     def __init__(self) -> None:
         super().__init__("A user agent that outputs the final image of self.")
 
@@ -214,11 +229,12 @@ async def main():
     runtime.start()
 
     # Initialize the image of self
-    initial_image = "You are learning."
+    initial_image = starting_sense_of_self
     update_image_of_self(initial_image)
 
     # Generate initial random words to start the process
     random_tokens = get_random_words(n=3)
+    print(f"Sensory input: {random_tokens}")
 
     # Start the loop by sending initial random tokens to the Dreamer
     await runtime.publish_message(
