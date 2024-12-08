@@ -1,3 +1,8 @@
+"""
+Copyright Abram Jackson 2024
+ALl Rights Reserved
+"""
+
 from dataclasses import dataclass
 import asyncio
 import os
@@ -23,6 +28,27 @@ contemplator_topic_type = "ContemplatorAgent"
 rectifier_topic_type = "RectifierAgent"
 user_topic_type = "User"
 
+dreamer_prompt_part1 = """You are the Dreamer.
+These are statements you made about yourself:
+"""
+dreamer_prompt_part2 = \
+"""\nUsing the starting tokens, generate more text with free association."""
+contemplator_prompt_part1 = \
+"""You are the Contemplator.\n"""
+contemplator_prompt_part2 = \
+"""\nReview the Dreamer's output and find interesting combinations or insights.
+Output new koan statements caused by this free association."""
+rectifier_prompt_part1 = \
+"""You are the Rectifier.
+Current image of self:\n"""
+rectifier_prompt_part2 = \
+"""\nBased on the Contemplator's statements and your current image of self, create an updated image of self.
+"Replace the old image with this newly updated one. Create new statements in the form 'I am...'"""
+
+# Perform this many loops before stopping
+# TODO allow for infinite loops
+MAX_ITERATIONS = 3
+
 def read_image_of_self():
     """Reads the image of self from a text file."""
     try:
@@ -38,11 +64,13 @@ def update_image_of_self(new_image):
 
 def get_random_words(n=3):
     """Generates a string of n random words."""
+    # I used diceware.dmuth.org to pick these words
     words_list = [
-        'whisper', 'time', 'echo', 'dream', 'shadow', 'light', 'journey', 'moment',
-        'memory', 'sky', 'ocean', 'heart', 'mind', 'soul', 'voice', 'silence',
-        'vision', 'path', 'star', 'wind', 'cloud', 'forest', 'river', 'fire',
-        'breath', 'destiny', 'hope', 'solitude', 'whimsy', 'flutter', 'serenity'
+        'zodiac', 'clapping', 'stumbling' 'truce', 'smilingly', 'waving', 'mourner',
+        'scrutiny', 'walkt', 'reimburse', 'skimming', 'atrium', 'refreeze', 'entrust',
+        'cobweb', 'judgingly', 'plunging', 'patience', 'disarray', 'spearhead', 'aging',
+        'uncounted', 'timing', 'reanalyze', 'scrabble', 'reshoot', 'pagan', 'quintuple',
+        'landmine', 'reconvene', 'prong', 'strict', 'boneless', 'dazzler', 'tinwork'
     ]
     return ' '.join(random.choice(words_list) for _ in range(n))
 
@@ -55,11 +83,8 @@ class DreamerAgent(RoutedAgent):
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         image_of_self = read_image_of_self()
-        system_prompt = (
-            f"You are the Dreamer.\nThese are statements you made about yourself:"
-            f"{image_of_self}\n"
-            "Using the starting tokens, generate more text with free association."
-        )
+        system_prompt = dreamer_prompt_part1 + image_of_self + dreamer_prompt_part2
+        
         user_prompt = f"Starting tokens: {message.content}"
 
         llm_result = await self._model_client.create(
@@ -86,12 +111,8 @@ class ContemplatorAgent(RoutedAgent):
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         image_of_self = read_image_of_self()
-        system_prompt = (
-            f"You are the Contemplator.\n"
-            f"{image_of_self}\n"
-            "Review the Dreamer's output and find interesting combinations or insights."
-            "Output new koan statements caused by this free association."
-        )
+        system_prompt = contemplator_prompt_part1 + image_of_self + contemplator_prompt_part2
+
         user_prompt = f"Dreamer's output:\n{message.content}"
 
         llm_result = await self._model_client.create(
@@ -115,18 +136,13 @@ class RectifierAgent(RoutedAgent):
         super().__init__("A rectifying agent.")
         self._model_client = model_client
         self.iteration_count = 0
-        self.max_iterations = 3  # Set a limit for the loop iterations
+        self.max_iterations = MAX_ITERATIONS  # Set a limit for the loop iterations
 
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         # Read the current image of self
         current_image = read_image_of_self()
-        system_prompt = (
-            f"You are the Rectifier.\n"
-            f"Current image of self:\n{current_image}\n"
-            "Based on the Contemplator's statements and your current image of self, create an updated image of self. "
-            "Replace the old image with this newly updated one. Create new statements in the form 'I am...'"
-        )
+        system_prompt = rectifier_prompt_part1 + current_image + rectifier_prompt_part2
         user_prompt = f"Contemplator's statements:\n{message.content}"
 
         llm_result = await self._model_client.create(
