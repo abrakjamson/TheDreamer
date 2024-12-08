@@ -26,7 +26,7 @@ class Message:
 dreamer_topic_type = "DreamerAgent"
 contemplator_topic_type = "ContemplatorAgent"
 rectifier_topic_type = "RectifierAgent"
-user_topic_type = "User"
+commander_topic_type = "CommanderAgent"
 
 starting_sense_of_self = "You are learning."
 dreamer_prompt_part1 = """You are the Dreamer.
@@ -41,14 +41,26 @@ contemplator_prompt_part2 = \
 Output new koan statements caused by this free association."""
 rectifier_prompt_part1 = \
 """You are the Rectifier.
-Current image of self:\n"""
+Your goal is:\n"""
 rectifier_prompt_part2 = \
-"""\nBased on the Contemplator's statements and your current image of self, create an updated image of self.
+"""Current image of self:\n"""
+rectifier_prompt_part3 = \
+"""\nBased on your goal, the Contemplator's statements, and your current image of self, create an updated image of self.
+Take what you've learned and apply them to yourself to grow and change, better able to accomplish your goal.
 "Replace the old image with this newly updated one. Create new statements in the form 'I am...'"""
+commander_prompt_part1 = \
+"""You are the Commander. You choose a goal to achieve by your thoughts based on your image of self and purpose.
+Current image of self:\n"""
+commander_prompt_part2 = \
+"""Replace the current goal with an updated goal if you wish. It should be tangible and actionable. Write a short statement of your new goal, or the same goal. No yapping!"""
 
-# Perform this many loops before stopping
-# TODO allow for infinite loops
-MAX_ITERATIONS = 3
+# Perform this many loops before updating the goal
+iterations_for_goal = 3
+current_goal = "My goal is to solve tangible problems."
+
+# Update the goal this many times before stopping
+# Total iterations will be iterations_for_goal * goal_iterations
+goal_iterations = 5
 
 def read_image_of_self():
     """Reads the image of self from a text file."""
@@ -68,7 +80,7 @@ def get_random_words(n=3):
     # I used diceware.dmuth.org to pick these words
     words_list = [
         'zodiac', 'clapping', 'stumbling' 'truce', 'smilingly', 'waving', 'mourner',
-        'scrutiny', 'walkt', 'reimburse', 'skimming', 'atrium', 'refreeze', 'entrust',
+        'scrutiny', 'walk', 'reimburse', 'skimming', 'atrium', 'refreeze', 'entrust',
         'cobweb', 'judgingly', 'plunging', 'patience', 'disarray', 'spearhead', 'aging',
         'uncounted', 'timing', 'reanalyze', 'scrabble', 'reshoot', 'pagan', 'quintuple',
         'landmine', 'reconvene', 'prong', 'strict', 'boneless', 'dazzler', 'tinwork'
@@ -147,13 +159,13 @@ class RectifierAgent(RoutedAgent):
         super().__init__("A rectifying agent.")
         self._model_client = model_client
         self.iteration_count = 0
-        self.max_iterations = MAX_ITERATIONS  # Set a limit for the loop iterations
+        self.max_iterations = iterations_for_goal  # Set a limit for the loop iterations
 
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         # Read the current image of self
         current_image = read_image_of_self()
-        system_prompt = rectifier_prompt_part1 + current_image + rectifier_prompt_part2
+        system_prompt = rectifier_prompt_part1 + current_goal + rectifier_prompt_part2 + current_image + rectifier_prompt_part3
         user_prompt = f"Contemplator's statements:\n{message.content}"
 
         llm_result = await self._model_client.create(
@@ -181,26 +193,52 @@ class RectifierAgent(RoutedAgent):
                 topic_id=TopicId(dreamer_topic_type, source=self.id.key)
             )
         else:
-            # Send final image of self to UserAgent
-            final_image = read_image_of_self()
+            # Determine whether to update the goal
             await self.publish_message(
-                Message(content=final_image),
-                topic_id=TopicId(user_topic_type, source=self.id.key)
+                Message(content=""), # The Commander only uses the image of self text as input
+                topic_id=TopicId(commander_topic_type, source=self.id.key)
             )
 
-@type_subscription(topic_type=user_topic_type)
-class UserAgent(RoutedAgent):
+@type_subscription(topic_type=commander_topic_type)
+class CommanderAgent(RoutedAgent):
     """
-    The User is only used for outputting the final results at this time.
+    The Commander Agent sets a goal every few turns based on its understanding of self.
     """
-    def __init__(self) -> None:
-        super().__init__("A user agent that outputs the final image of self.")
+    def __init__(self, model_client: ChatCompletionClient) -> None:
+        super().__init__("A agent that sets a goal for all the agents")
+        self._model_client = model_client
+        self.goal_count = 0
+        self.max_iterations = goal_iterations
 
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
-        print(f"\n{'-'*80}\n{self.id.type} received final image of self:\n{message.content}")
-        # Stop the runtime after receiving the final image
-        await runtime.stop()
+        current_image = read_image_of_self()
+        system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2
+        global current_goal
+        user_prompt = current_goal
+        llm_result = await self._model_client.create(
+            messages=[
+                SystemMessage(content=system_prompt),
+                UserMessage(content=user_prompt, source=self.id.key)
+            ],
+            cancellation_token=ctx.cancellation_token,
+        )
+        current_goal = llm_result.content.strip()
+        print(f"\n{'-'*80}\n{self.id.type} has set a goal:\n{current_goal}")
+
+        self.goal_count += 1
+        # TODO allow for continuous execution
+        if self.goal_count < self.max_iterations:
+            # Loop again back to the Dreamer.
+            self.iteration_count = 0
+            random_tokens = get_random_words(n=3)
+            print(f"New sensory input: {random_tokens}")
+            await self.publish_message(
+                Message(content=random_tokens),
+                topic_id=TopicId(dreamer_topic_type, source=self.id.key)
+            )
+        else:
+            await runtime.stop()
 
 # Initialize the model client with your settings
 model_client = OpenAIChatCompletionClient(
@@ -220,8 +258,8 @@ async def register_agents():
     await RectifierAgent.register(
         runtime, type=rectifier_topic_type, factory=lambda: RectifierAgent(model_client=model_client)
     )
-    await UserAgent.register(
-        runtime, type=user_topic_type, factory=lambda: UserAgent()
+    await CommanderAgent.register(
+        runtime, type=commander_topic_type, factory=lambda: CommanderAgent(model_client=model_client)
     )
 
 async def main():
@@ -229,8 +267,7 @@ async def main():
     runtime.start()
 
     # Initialize the image of self
-    initial_image = starting_sense_of_self
-    update_image_of_self(initial_image)
+    update_image_of_self(starting_sense_of_self)
 
     # Generate initial random words to start the process
     random_tokens = get_random_words(n=3)
