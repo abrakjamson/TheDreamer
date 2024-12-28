@@ -3,6 +3,8 @@ Copyright Abram Jackson 2024
 ALl Rights Reserved
 """
 
+# Import the ModelClient from wetware
+
 from dataclasses import dataclass
 import asyncio
 import os
@@ -18,6 +20,7 @@ from autogen_core import (
 )
 from autogen_core.components.models import ChatCompletionClient, SystemMessage, UserMessage
 from autogen_ext.models import OpenAIChatCompletionClient
+from wetware import ModelClient
 
 @dataclass
 class Message:
@@ -55,12 +58,12 @@ commander_prompt_part2 = \
 """Replace the current goal with an updated goal if you wish. It should be tangible and actionable. Write a short statement of your new goal, or the same goal. No yapping!"""
 
 # Perform this many loops before updating the goal
-iterations_for_goal = 3
+iterations_for_goal = 5
 current_goal = "My goal is to solve tangible problems."
 
 # Update the goal this many times before stopping
 # Total iterations will be iterations_for_goal * goal_iterations
-goal_iterations = 5
+goal_iterations = 10
 
 def read_image_of_self():
     """Reads the image of self from a text file."""
@@ -79,7 +82,7 @@ def get_random_words(n=3):
     """Generates a string of n random words."""
     # I used diceware.dmuth.org to pick these words
     words_list = [
-        'zodiac', 'clapping', 'stumbling' 'truce', 'smilingly', 'waving', 'mourner',
+        'zodiac', 'clapping', 'stumbling', 'truce', 'smilingly', 'waving', 'mourner',
         'scrutiny', 'walk', 'reimburse', 'skimming', 'atrium', 'refreeze', 'entrust',
         'cobweb', 'judgingly', 'plunging', 'patience', 'disarray', 'spearhead', 'aging',
         'uncounted', 'timing', 'reanalyze', 'scrabble', 'reshoot', 'pagan', 'quintuple',
@@ -240,13 +243,8 @@ class CommanderAgent(RoutedAgent):
         else:
             await runtime.stop()
 
-# Initialize the model client with your settings
-model_client = OpenAIChatCompletionClient(
-    model="gpt-4",
-    api_key="YOUR_API_KEY",
-    base_url="http://localhost:1234/v1",
-    max_tokens=512
-)
+# Initialize the model client using the ModelClient from wetware.py
+model_client = ModelClient()
 
 async def register_agents():
     await DreamerAgent.register(
