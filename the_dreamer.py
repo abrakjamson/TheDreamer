@@ -65,6 +65,7 @@ iterations_for_goal = 5
 # the number of LLM calls is (iterations_for_goal * 3 * goal_iterations) + goal_iterations
 goal_iterations = 2
 
+
 def read_image_of_self():
     """Reads the image of self from a text file."""
     try:
@@ -196,6 +197,7 @@ class RectifierAgent(RoutedAgent):
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         # Read the current image of self
         current_image = read_image_of_self()
+        current_goal = read_goals()
         system_prompt = rectifier_prompt_part1 + current_goal + rectifier_prompt_part2 + current_image + rectifier_prompt_part3
         user_prompt = f"Contemplator's statements:\n{message.content}"
 
@@ -279,6 +281,9 @@ class CommanderAgent(RoutedAgent):
 model_client = ModelClient()
 
 async def register_agents():
+    
+
+    # Then in register_agents():
     await DreamerAgent.register(
         runtime, type=dreamer_topic_type, factory=lambda: DreamerAgent(model_client=model_client)
     )
@@ -293,7 +298,6 @@ async def register_agents():
     )
 
 async def begin_dreaming():
-    runtime = SingleThreadedAgentRuntime()
     await register_agents()
     runtime.start()
 
@@ -312,6 +316,8 @@ async def begin_dreaming():
 
     # Ensure the runtime stops when idle
     await runtime.stop_when_idle()
+
+runtime = SingleThreadedAgentRuntime()
 
 if __name__ == "__main__":
     asyncio.run(begin_dreaming())
