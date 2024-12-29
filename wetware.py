@@ -1,36 +1,50 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
 import torch
 from typing import List, Dict
+from gradio import ChatMessage
 
 class LLMResult:
     def __init__(self, content):
         self.content = content
 
 class ModelClient:
-    def __init__(self):
-        self.model_name = "meta-llama/Llama-3.2-3B-Instruct"
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, torch_dtype=torch.float16)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(self.device)
+    # Class attributes
+    model_name = "meta-llama/Llama-3.2-3B-Instruct"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
 
-    def _format_messages(self, messages: List[Dict]) -> str:
+    def __init__(self):
+        pass
+
+    def format_messages(self, messages: List[Dict]) -> str:
         """Format messages into Llama 3.2 chat format"""
+        # Gradio sends ChatMessages as a list of dictionaries with 'role' and 'content'
+        # AutoGen sends ChatMessages a list of data classes with 'role' and 'content' as properties
+        # Check if messages are dictionaries or data classes
+        # If dictionaries, convert to data classes format
+        formatted_messages = []
+        for message in messages:
+            if isinstance(message, ChatMessage):
+                formatted_messages.append(type('Message', (), {'type': message.role, 'content': message.content})())
+            else:
+                formatted_messages.append(message)
+        messages = formatted_messages
         formatted_prompt = "<|begin_of_text|>\n"
         for message in messages:
             role = message.type
             content = message.content
             
-            if role == "SystemMessage":
+            if role == "SystemMessage" or role == "system":
                 formatted_prompt += f"<|start_header_id|>system<|end_header_id|> {content} <|eom_id|>\n"
-            elif role == "UserMessage":
+            elif role == "UserMessage" or role == "user":
                 formatted_prompt += f"<|start_header_id|>user<|end_header_id|> {content} <|eom_id|>\n"
             elif role == "assistant":
                 formatted_prompt += f"<|start_header_id|>assistant<|end_header_id|> {content} <|eom_id|>\n"
         
         formatted_prompt += "<|end_of_text|>"
         return formatted_prompt
-
 
     async def create(self, messages: List[Dict], cancellation_token, **kwargs) -> LLMResult:
         """
@@ -41,7 +55,7 @@ class ModelClient:
         Returns:
             LLMResult containing the generated response
         """
-        prompt = self._format_messages(messages)
+        prompt = self.format_messages(messages)
         
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         

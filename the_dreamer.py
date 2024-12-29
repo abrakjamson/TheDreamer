@@ -59,11 +59,11 @@ commander_prompt_part2 = \
 
 # Perform this many loops before updating the goal
 iterations_for_goal = 5
-current_goal = "My goal is to solve tangible problems."
 
 # Update the goal this many times before stopping
 # Total iterations will be iterations_for_goal * goal_iterations
-goal_iterations = 10
+# the number of LLM calls is (iterations_for_goal * 3 * goal_iterations) + goal_iterations
+goal_iterations = 2
 
 def read_image_of_self():
     """Reads the image of self from a text file."""
@@ -77,6 +77,32 @@ def update_image_of_self(new_image):
     """Replaces the image of self text file with the new image."""
     with open('image_of_self.txt', 'w') as f:
         f.write(new_image + '\n')
+
+def read_thoughts():
+    """Reads the thoughts from a text file."""
+    try:
+        with open('thoughts.txt', 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        return ''
+
+def update_thoughts(new_thoughts):
+    """Replaces the thoughts text file with the new thoughts."""
+    with open('thoughts.txt', 'w') as f:
+        f.write(new_thoughts + '\n')
+
+def read_goals():
+    """Reads the goals from a text file."""
+    try:
+        with open('goals.txt', 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        return ''
+
+def update_goals(new_goals):
+    """Replaces the goals text file with the new goals."""
+    with open('goals.txt', 'w') as f:
+        f.write(new_goals + '\n')
 
 def get_random_words(n=3):
     """Generates a string of n random words."""
@@ -114,6 +140,7 @@ class DreamerAgent(RoutedAgent):
             cancellation_token=ctx.cancellation_token,
         )
         response = llm_result.content.strip()
+        update_thoughts(f"THE DREAMER\n{response}")
         print(f"{'-'*80}\n{self.id.type}:\n{response}")
 
         await self.publish_message(
@@ -145,6 +172,7 @@ class ContemplatorAgent(RoutedAgent):
             cancellation_token=ctx.cancellation_token,
         )
         response = llm_result.content.strip()
+        update_thoughts(f"THE CONTEMPLATOR\n{response}")
         print(f"{'-'*80}\n{self.id.type}:\n{response}")
 
         await self.publish_message(
@@ -179,12 +207,14 @@ class RectifierAgent(RoutedAgent):
             cancellation_token=ctx.cancellation_token,
         )
         new_image = llm_result.content.strip()
+        update_thoughts(f"THE RECTIFIER\n{new_image}")
         print(f"{'-'*80}\n{self.id.type}:\n{new_image}")
 
         # Replace the image of self with the new image
         update_image_of_self(new_image)
 
         self.iteration_count += 1
+        print(f"Iteration count: {self.iteration_count}")
 
         # Loop control
         if self.iteration_count < self.max_iterations:
@@ -217,8 +247,8 @@ class CommanderAgent(RoutedAgent):
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         current_image = read_image_of_self()
         system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2
-        global current_goal
-        user_prompt = current_goal
+        
+        user_prompt = read_goals()
         llm_result = await self._model_client.create(
             messages=[
                 SystemMessage(content=system_prompt),
@@ -227,6 +257,8 @@ class CommanderAgent(RoutedAgent):
             cancellation_token=ctx.cancellation_token,
         )
         current_goal = llm_result.content.strip()
+        update_thoughts(f"THE COMMANDER\n{current_goal}")
+        update_goals(current_goal)
         print(f"\n{'-'*80}\n{self.id.type} has set a goal:\n{current_goal}")
 
         self.goal_count += 1
@@ -260,7 +292,8 @@ async def register_agents():
         runtime, type=commander_topic_type, factory=lambda: CommanderAgent(model_client=model_client)
     )
 
-async def main():
+async def begin_dreaming():
+    runtime = SingleThreadedAgentRuntime()
     await register_agents()
     runtime.start()
 
@@ -281,5 +314,4 @@ async def main():
     await runtime.stop_when_idle()
 
 if __name__ == "__main__":
-    runtime = SingleThreadedAgentRuntime()
-    asyncio.run(main())
+    asyncio.run(begin_dreaming())
