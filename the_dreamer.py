@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import asyncio
 import os
 import random
+import re
 
 from autogen_core import (
     MessageContext,
@@ -18,7 +19,7 @@ from autogen_core import (
     type_subscription,
     message_handler,
 )
-from autogen_core.components.models import ChatCompletionClient, SystemMessage, UserMessage
+from autogen_core.components.models import ChatCompletionClient, SystemMessage, UserMessage, AssistantMessage
 from autogen_ext.models import OpenAIChatCompletionClient
 from wetware import ModelClient
 
@@ -32,30 +33,32 @@ rectifier_topic_type = "RectifierAgent"
 commander_topic_type = "CommanderAgent"
 
 starting_sense_of_self = "You are learning."
-dreamer_prompt_part1 = """You are the Dreamer.
+dreamer_prompt_part1 = """You are the Dreamer, one part of a mind.
 These are statements you made about yourself:
 """
 dreamer_prompt_part2 = \
 """\nUsing the starting tokens, generate more text with free association."""
 contemplator_prompt_part1 = \
-"""You are the Contemplator.\n"""
+"""You are the Contemplator, one part of a mind.\n"""
 contemplator_prompt_part2 = \
 """\nReview the Dreamer's output and find interesting combinations or insights.
-Output new koan statements caused by this free association."""
+Think about them, and then output new koan statements caused by this free association into a fenced Markdown code block."""
 rectifier_prompt_part1 = \
-"""You are the Rectifier.
+"""You are the Rectifier, one part of a mind.
 Your goal is:\n"""
 rectifier_prompt_part2 = \
 """Current image of self:\n"""
 rectifier_prompt_part3 = \
 """\nBased on your goal, the Contemplator's statements, and your current image of self, create an updated image of self.
 Take what you've learned and apply them to yourself to grow and change, better able to accomplish your goal.
-"Replace the old image with this newly updated one. Create new statements in the form 'I am...'"""
+"Replace the old image with this newly updated one. Create new statements in the form 'I am...' into a fenced Markdown code block"""
 commander_prompt_part1 = \
-"""You are the Commander. You choose a goal to achieve by your thoughts based on your image of self and purpose.
+"""You are the Commander, part of a conscious mind.
+You choose a goal to achieve by your thoughts based on your image of self and purpose.
 Current image of self:\n"""
 commander_prompt_part2 = \
-"""Replace the current goal with an updated goal if you wish. It should be tangible and actionable. Write a short statement of your new goal, or the same goal. No yapping!"""
+"""Replace the current goal with an updated goal if you wish.It should be tangible and actionable.
+Write a short statement of your new goal, or the same goal, into a fenced Markdown code block."""
 
 # Perform this many loops before updating the goal
 iterations_for_goal = 5
@@ -65,7 +68,9 @@ iterations_for_goal = 5
 # the number of LLM calls is (iterations_for_goal * 3 * goal_iterations) + goal_iterations
 goal_iterations = 2
 
-
+#########################
+# Helper functions
+#########################
 def read_image_of_self():
     """Reads the image of self from a text file."""
     try:
@@ -117,6 +122,17 @@ def get_random_words(n=3):
     ]
     return ' '.join(random.choice(words_list) for _ in range(n))
 
+def extract_thought(markdown_string):
+    # Agents are intsructed to write their thoughts to communicate in a Markdown code block
+    code_block_pattern = r"```(?:[^`\n]*\n)?(.*?)```"
+    code_blocks = re.findall(code_block_pattern, markdown_string, re.DOTALL)
+    
+    # Return the content of the first code block, or an empty string if no code block is found
+    return code_blocks[0].strip() if code_blocks else ""
+
+########################
+# Agents
+########################
 @type_subscription(topic_type=dreamer_topic_type)
 class DreamerAgent(RoutedAgent):
     """
@@ -125,21 +141,36 @@ class DreamerAgent(RoutedAgent):
     def __init__(self, model_client: ChatCompletionClient) -> None:
         super().__init__("A dreaming agent.")
         self._model_client = model_client
+        self.firstTurn = True
 
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
-        image_of_self = read_image_of_self()
-        system_prompt = dreamer_prompt_part1 + image_of_self + dreamer_prompt_part2
-        
-        user_prompt = f"Starting tokens: {message.content}"
+        if self.firstTurn:
+            # On the first turn, the Dreamer is entirely bootstrapped from input; no programming
+            self.firstTurn = False
+            assistant_preprompt = f"I dream of {message.content}"
+            llm_result = await self._model_client.create(
+                messages=[
+                    AssistantMessage(content=assistant_preprompt, 
+                                     type="AssistantMessage",
+                                     source=self.id.key)
+                ],
+                cancellation_token=ctx.cancellation_token,
+            )
+        else:
+            image_of_self = read_image_of_self()
+            system_prompt = dreamer_prompt_part1 + image_of_self + dreamer_prompt_part2
+            
+            user_prompt = f"Starting tokens: {message.content}"
 
-        llm_result = await self._model_client.create(
-            messages=[
-                SystemMessage(content=system_prompt),
-                UserMessage(content=user_prompt, source=self.id.key)
-            ],
-            cancellation_token=ctx.cancellation_token,
-        )
+            llm_result = await self._model_client.create(
+                messages=[
+                    SystemMessage(content=system_prompt),
+                    UserMessage(content=user_prompt, source=self.id.key)
+                ],
+                cancellation_token=ctx.cancellation_token,
+            )
+        
         response = llm_result.content.strip()
         update_thoughts(f"THE DREAMER\n{response}")
         print(f"{'-'*80}\n{self.id.type}:\n{response}")
@@ -172,9 +203,9 @@ class ContemplatorAgent(RoutedAgent):
             ],
             cancellation_token=ctx.cancellation_token,
         )
-        response = llm_result.content.strip()
-        update_thoughts(f"THE CONTEMPLATOR\n{response}")
-        print(f"{'-'*80}\n{self.id.type}:\n{response}")
+        response = extract_thought(llm_result.content)
+        update_thoughts(f"THE CONTEMPLATOR\n{llm_result.content}")
+        print(f"{'-'*80}\n{self.id.type}:\n{llm_result.content}")
 
         await self.publish_message(
             Message(response),
@@ -208,9 +239,9 @@ class RectifierAgent(RoutedAgent):
             ],
             cancellation_token=ctx.cancellation_token,
         )
-        new_image = llm_result.content.strip()
-        update_thoughts(f"THE RECTIFIER\n{new_image}")
-        print(f"{'-'*80}\n{self.id.type}:\n{new_image}")
+        new_image = extract_thought(llm_result.content)
+        update_thoughts(f"THE RECTIFIER\n{llm_result.content}")
+        print(f"{'-'*80}\n{self.id.type}:\n{llm_result.content}")
 
         # Replace the image of self with the new image
         update_image_of_self(new_image)
@@ -258,10 +289,10 @@ class CommanderAgent(RoutedAgent):
             ],
             cancellation_token=ctx.cancellation_token,
         )
-        current_goal = llm_result.content.strip()
-        update_thoughts(f"THE COMMANDER\n{current_goal}")
+        current_goal = extract_thought(llm_result.content)
+        update_thoughts(f"THE COMMANDER\n{llm_result.content}")
         update_goals(current_goal)
-        print(f"\n{'-'*80}\n{self.id.type} has set a goal:\n{current_goal}")
+        print(f"\n{'-'*80}\n{self.id.type} has thought:\n{llm_result.content}")
 
         self.goal_count += 1
         # TODO allow for continuous execution
@@ -277,13 +308,14 @@ class CommanderAgent(RoutedAgent):
         else:
             await runtime.stop()
 
+########################
+# Initialization
+########################
+
 # Initialize the model client using the ModelClient from wetware.py
 model_client = ModelClient()
 
 async def register_agents():
-    
-
-    # Then in register_agents():
     await DreamerAgent.register(
         runtime, type=dreamer_topic_type, factory=lambda: DreamerAgent(model_client=model_client)
     )
@@ -298,6 +330,7 @@ async def register_agents():
     )
 
 async def begin_dreaming():
+    """Begin. Called by either the __main__ block or the Gradio interface."""
     await register_agents()
     runtime.start()
 

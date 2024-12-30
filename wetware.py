@@ -40,7 +40,7 @@ class ModelClient:
                 formatted_prompt += f"<|start_header_id|>system<|end_header_id|> {content} <|eom_id|>\n"
             elif role == "UserMessage" or role == "user":
                 formatted_prompt += f"<|start_header_id|>user<|end_header_id|> {content} <|eom_id|>\n"
-            elif role == "assistant":
+            elif role == "AssistantMessage" or role == "assistant":
                 formatted_prompt += f"<|start_header_id|>assistant<|end_header_id|> {content} <|eom_id|>\n"
         
         formatted_prompt += "<|end_of_text|>"
