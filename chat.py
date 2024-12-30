@@ -48,9 +48,10 @@ def load_text_file(filename):
 # Function to reload all text files
 def reload_text_files():
     return (
+        load_text_file("dreams.txt"),
+        load_text_file("musings.txt"),
         load_text_file("image_of_self.txt"),
         load_text_file("goals.txt"),
-        load_text_file("thoughts.txt")
     )
 
 # Gradio interface components
@@ -66,23 +67,32 @@ with gr.Blocks() as demo:
 
     # Display the text files on the right pane
     with gr.Column():
-        with gr.Accordion("Image of Self"):
-            image_of_self = gr.TextArea(value=lambda: load_text_file("image_of_self.txt"), interactive=False)
-        
-        with gr.Accordion("Goals"):
-            goals = gr.TextArea(value=lambda: load_text_file("goals.txt"), interactive=False)
-
-        with gr.Accordion("Thoughts"):
-            thoughts = gr.TextArea(value=lambda: load_text_file("thoughts.txt"), interactive=False)
-        
+        with gr.Accordion("Most recent thoughts"):
+            dreams = gr.TextArea(value=lambda: load_text_file("dreams.txt"),
+                                    interactive=False,
+                                    label="Dreams from the Dreamer",
+                                    every=5)
+            musings = gr.TextArea(value=lambda: load_text_file("musings.txt"), 
+                                   interactive=False,
+                                   label="Musings from the Contemplator",
+                                   every=5)
+            image_of_self = gr.TextArea(value=lambda: load_text_file("image_of_self.txt"), 
+                                        interactive=False,
+                                        label="Image of Self from the Rectifier",
+                                        every=5)
+            goals = gr.TextArea(value=lambda: load_text_file("goals.txt"),
+                                interactive=False,
+                                label="Goals from the Commander",
+                                every=5)       
         # Add refresh button
         refresh_btn = gr.Button("Refresh Content")
         refresh_btn.click(
             fn=reload_text_files,
             outputs=[
+                dreams,
+                musings,
                 image_of_self,
-                goals,
-                thoughts
+                goals
             ]
         )
 

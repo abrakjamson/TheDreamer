@@ -57,11 +57,11 @@ commander_prompt_part1 = \
 You choose a goal to achieve by your thoughts based on your image of self and purpose.
 Current image of self:\n"""
 commander_prompt_part2 = \
-"""Replace the current goal with an updated goal if you wish.It should be tangible and actionable.
-Write a short statement of your new goal, or the same goal, into a fenced Markdown code block."""
+"""Replace the current goal with an updated goal if you wish. It should be tangible and actionable.
+Write a short statement of your new goal, or the same goal. No yapping!"""
 
 # Perform this many loops before updating the goal
-iterations_for_goal = 5
+iterations_for_goal = 3
 
 # Update the goal this many times before stopping
 # Total iterations will be iterations_for_goal * goal_iterations
@@ -71,6 +71,16 @@ goal_iterations = 2
 #########################
 # Helper functions
 #########################
+def update_dreams(new_dream):
+    """Replaces the image of self text file with the new image."""
+    with open('dreams.txt', 'w') as f:
+        f.write(new_dream)
+
+def update_musings(new_musing):
+    """Replaces the image of self text file with the new image."""
+    with open('musings.txt', 'w') as f:
+        f.write(new_musing)
+
 def read_image_of_self():
     """Reads the image of self from a text file."""
     try:
@@ -82,20 +92,15 @@ def read_image_of_self():
 def update_image_of_self(new_image):
     """Replaces the image of self text file with the new image."""
     with open('image_of_self.txt', 'w') as f:
-        f.write(new_image + '\n')
+        f.write(new_image)
 
-def read_thoughts():
+def read_musings():
     """Reads the thoughts from a text file."""
     try:
-        with open('thoughts.txt', 'r') as f:
+        with open('musings.txt', 'r') as f:
             return f.read()
     except FileNotFoundError:
         return ''
-
-def update_thoughts(new_thoughts):
-    """Replaces the thoughts text file with the new thoughts."""
-    with open('thoughts.txt', 'w') as f:
-        f.write(new_thoughts + '\n')
 
 def read_goals():
     """Reads the goals from a text file."""
@@ -108,7 +113,7 @@ def read_goals():
 def update_goals(new_goals):
     """Replaces the goals text file with the new goals."""
     with open('goals.txt', 'w') as f:
-        f.write(new_goals + '\n')
+        f.write(new_goals)
 
 def get_random_words(n=3):
     """Generates a string of n random words."""
@@ -172,7 +177,7 @@ class DreamerAgent(RoutedAgent):
             )
         
         response = llm_result.content.strip()
-        update_thoughts(f"THE DREAMER\n{response}")
+        update_dreams(response)
         print(f"{'-'*80}\n{self.id.type}:\n{response}")
 
         await self.publish_message(
@@ -204,7 +209,7 @@ class ContemplatorAgent(RoutedAgent):
             cancellation_token=ctx.cancellation_token,
         )
         response = extract_thought(llm_result.content)
-        update_thoughts(f"THE CONTEMPLATOR\n{llm_result.content}")
+        update_musings(llm_result.content)
         print(f"{'-'*80}\n{self.id.type}:\n{llm_result.content}")
 
         await self.publish_message(
@@ -240,16 +245,14 @@ class RectifierAgent(RoutedAgent):
             cancellation_token=ctx.cancellation_token,
         )
         new_image = extract_thought(llm_result.content)
-        update_thoughts(f"THE RECTIFIER\n{llm_result.content}")
+        if new_image == "":  # If the Rectifier has no new image of self, keep the old one
+            new_image = current_image
+        update_image_of_self(new_image)
         print(f"{'-'*80}\n{self.id.type}:\n{llm_result.content}")
 
-        # Replace the image of self with the new image
-        update_image_of_self(new_image)
-
+        # every few turns, update the goal
         self.iteration_count += 1
         print(f"Iteration count: {self.iteration_count}")
-
-        # Loop control
         if self.iteration_count < self.max_iterations:
             # Generate new random words to send to Dreamer
             random_tokens = get_random_words(n=3)
@@ -281,16 +284,15 @@ class CommanderAgent(RoutedAgent):
         current_image = read_image_of_self()
         system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2
         
-        user_prompt = read_goals()
+        previous_goal = read_goals()
         llm_result = await self._model_client.create(
             messages=[
                 SystemMessage(content=system_prompt),
-                UserMessage(content=user_prompt, source=self.id.key)
+                UserMessage(content=previous_goal, source=self.id.key)
             ],
             cancellation_token=ctx.cancellation_token,
         )
-        current_goal = extract_thought(llm_result.content)
-        update_thoughts(f"THE COMMANDER\n{llm_result.content}")
+        current_goal = llm_result.content.strip()
         update_goals(current_goal)
         print(f"\n{'-'*80}\n{self.id.type} has thought:\n{llm_result.content}")
 
