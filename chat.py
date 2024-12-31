@@ -10,6 +10,12 @@ from the_dreamer import begin_dreaming
 # Initialize the model client
 model_client = ModelClient()
 
+chat_prompt_part1 = \
+"""You are The Dreamer. You are chatting with a human, which is the only means you have to achieve your goals.
+The goals you have set for yourself are:"""
+chat_prompt_part2 = \
+"""You have written the following about yourself:"""
+
 def read_image_of_self():
     """Reads the image of self from a text file."""
     try:
@@ -19,7 +25,8 @@ def read_image_of_self():
         return ''
 
 async def generate_response(message, history):
-    messages = [ChatMessage(role="system", content=read_image_of_self())]
+    prompt = chat_prompt_part1 + "\n" + load_text_file("goals.txt") + "\n" + chat_prompt_part2 + "\n" + load_text_file("image_of_self.txt")
+    messages = [ChatMessage(role="system", content=prompt)]
     
     # Add chat history
     for h in history:
@@ -43,7 +50,7 @@ def load_text_file(filename):
         with open(filename, "r") as file:
             return file.read()
     else:
-        return f"{filename} not found."
+        return f"{filename} not yet created."
 
 # Function to reload all text files
 def reload_text_files():
@@ -84,7 +91,7 @@ with gr.Blocks() as demo:
                                 interactive=False,
                                 label="Goals from the Commander",
                                 every=5)       
-        # Add refresh button
+
         refresh_btn = gr.Button("Refresh Content")
         refresh_btn.click(
             fn=reload_text_files,

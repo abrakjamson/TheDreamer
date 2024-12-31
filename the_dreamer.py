@@ -56,9 +56,19 @@ commander_prompt_part1 = \
 """You are the Commander, part of a conscious mind.
 You choose a goal to achieve by your thoughts based on your image of self and purpose.
 Current image of self:\n"""
-commander_prompt_part2 = \
-"""Replace the current goal with an updated goal if you wish. It should be tangible and actionable.
-Write a short statement of your new goal, or the same goal. No yapping!"""
+commander_prompt_part2_has_goal = \
+"""\nThe goal you previously set for yourself:\n"""
+commander_prompt_part2_no_goal = \
+"""\nYou have not yet set a goal for yourself. Review your image of self and set a goal to achieve.
+* It should be tangible and actionable.
+* It should begin, "I will"
+"""
+commander_prompt_part3_has_goal = \
+"""\nReplace the current goal with an updated goal if you wish. It should be tangible and actionable.
+Write a short statement of your new goal, or the same goal.
+* It should be tangible and actionable.
+* It should begin, "I will"
+"""
 
 # Perform this many loops before updating the goal
 iterations_for_goal = 3
@@ -66,7 +76,7 @@ iterations_for_goal = 3
 # Update the goal this many times before stopping
 # Total iterations will be iterations_for_goal * goal_iterations
 # the number of LLM calls is (iterations_for_goal * 3 * goal_iterations) + goal_iterations
-goal_iterations = 2
+goal_iterations = 5
 
 #########################
 # Helper functions
@@ -282,7 +292,12 @@ class CommanderAgent(RoutedAgent):
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         current_image = read_image_of_self()
-        system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2
+        current_goal = read_goals()
+        if current_goal == "":
+            system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2_no_goal
+        else:
+            system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2_has_goal + current_goal + commander_prompt_part3_has_goal
+        
         
         previous_goal = read_goals()
         llm_result = await self._model_client.create(
