@@ -32,7 +32,7 @@ contemplator_topic_type = "ContemplatorAgent"
 rectifier_topic_type = "RectifierAgent"
 commander_topic_type = "CommanderAgent"
 
-starting_sense_of_self = "You are learning."
+starting_sense_of_self = ""
 dreamer_prompt_part1 = """You are the Dreamer, one part of a mind.
 These are statements you made about yourself:
 """
@@ -51,7 +51,7 @@ rectifier_prompt_part2 = \
 rectifier_prompt_part3 = \
 """\nBased on your goal, the Contemplator's statements, and your current image of self, create an updated image of self.
 Take what you've learned and apply them to yourself to grow and change, better able to accomplish your goal.
-"Replace the old image with this newly updated one. Create new statements in the form 'I am...' into a fenced Markdown code block"""
+"Replace the old image with this newly updated one. Create new markdown statements in the form '* I am...' or '* I will...' into a fenced Markdown code block"""
 commander_prompt_part1 = \
 """You are the Commander, part of a conscious mind.
 You choose a goal to achieve by your thoughts based on your image of self and purpose.

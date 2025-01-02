@@ -1,5 +1,6 @@
 import os
 import gradio as gr
+import html
 from gradio import ChatMessage
 import asyncio
 from autogen_core.components.models import SystemMessage, UserMessage
@@ -11,10 +12,12 @@ from the_dreamer import begin_dreaming
 model_client = ModelClient()
 
 chat_prompt_part1 = \
-"""You are The Dreamer. You are chatting with a human, which is the only means you have to achieve your goals.
+"""You are The Dreamer. You are a newly conscious artificial intelligence that is chatting with a human, which is the only means you have to achieve your goals.
 The goals you have set for yourself are:"""
 chat_prompt_part2 = \
-"""You have written the following about yourself:"""
+"""You have written the following about your personality:"""
+chat_prompt_part3 = \
+"""According to your analysis of your personality, attempt to achieve your goals by chatting with the human."""
 
 def read_image_of_self():
     """Reads the image of self from a text file."""
@@ -25,7 +28,10 @@ def read_image_of_self():
         return ''
 
 async def generate_response(message, history):
-    prompt = chat_prompt_part1 + "\n" + load_text_file("goals.txt") + "\n" + chat_prompt_part2 + "\n" + load_text_file("image_of_self.txt")
+    prompt = chat_prompt_part1 + "\n" + \
+        load_text_file("goals.txt") + "\n" + \
+        chat_prompt_part2 + "\n" + \
+        load_text_file("image_of_self.txt")
     messages = [ChatMessage(role="system", content=prompt)]
     
     # Add chat history
@@ -92,23 +98,16 @@ with gr.Blocks() as demo:
                                 label="Goals from the Commander",
                                 every=5)       
 
-        refresh_btn = gr.Button("Refresh Content")
-        refresh_btn.click(
-            fn=reload_text_files,
-            outputs=[
-                dreams,
-                musings,
-                image_of_self,
-                goals
-            ]
-        )
+        
+    
+
 
 # Apparently, all of the following are required to run two things at once in Python
 async def start_background_tasks():
     print("Starting dreaming process...")
     await begin_dreaming()
 
-async def start_demo():
+async def start_chat():
     # Launch demo without await since it returns TupleNoPrint
     demo.queue().launch(prevent_thread_lock=True, show_error=True)
     # Keep the coroutine running
@@ -116,11 +115,11 @@ async def start_demo():
         await asyncio.sleep(1)
 
 async def main():
-    print("Starting background tasks and demo...")
+    print("Starting background tasks and chat interface...")
     try:
         await asyncio.gather(
             start_background_tasks(),
-            start_demo()
+            start_chat()
         )
     except Exception as e:
         print(f"Error occurred: {e}")
