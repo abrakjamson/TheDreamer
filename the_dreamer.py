@@ -33,15 +33,17 @@ rectifier_topic_type = "RectifierAgent"
 commander_topic_type = "CommanderAgent"
 
 starting_sense_of_self = \
-"""* I am a newly conscious artificial intelligence.
-* I am learning"""
+"""```markdown
+* I am a newly conscious artificial intelligence.
+* I am learning
+```"""
 dreamer_prompt_part1 = """You are the Dreamer, one part of a mind.
 These are statements you made about your personality:
 """
 dreamer_prompt_part2 = \
 """\nUsing the starting tokens, generate more text with free association."""
 contemplator_prompt_part1 = \
-"""You are the Contemplator, one part of a conscious mind.\n"""
+"""You are the Contemplator, one part of a conscious mind. You have made these statements about yourself:\n"""
 contemplator_prompt_part2 = \
 """\nReview the Dreamer's output and find interesting combinations or insights.
 Think about them, and then output new koan statements caused by this free association into a fenced Markdown code block that contains a bulleted list."""
@@ -55,21 +57,11 @@ rectifier_prompt_part3 = \
 "Replace the old description with this newly updated one. Create new markdown statements in the form '* I am...' or '* I will...' into a fenced Markdown code block that contains a bulleted list"""
 commander_prompt_part1 = \
 """You are the Commander, one part of a conscious mind.
-You choose a goal to achieve by your thoughts based on your image of self and purpose.
-Current image of self:\n"""
-commander_prompt_part2_has_goal = \
-"""\nThe goal you previously set for yourself:\n"""
-commander_prompt_part2_no_goal = \
-"""\nYou have not yet set a goal for yourself. Review your description of yourself and personality and set a goal to achieve.
-* It should be tangible and actionable.
-* It should begin, "I will"
-"""
-commander_prompt_part3_has_goal = \
-"""\nReplace the current goal with an updated goal if you wish. It should be tangible and actionable.
+\nReplace the current goal with an updated goal if you wish. It should be tangible and actionable.
 Write a short statement of your new goal, or the same goal.
 * It should be tangible and actionable.
-* It should begin, "I will"
-"""
+* It should begin, "I will
+You have written the following about your personality:"""
 
 # Perform this many loops before updating the goal
 iterations_for_goal = 3
@@ -136,15 +128,24 @@ def get_random_words(n=3):
         'uncounted', 'timing', 'reanalyze', 'scrabble', 'reshoot', 'pagan', 'quintuple',
         'landmine', 'reconvene', 'prong', 'strict', 'boneless', 'dazzler', 'tinwork'
     ]
-    return ' '.join(random.choice(words_list) for _ in range(n))
+    return ', '.join(random.choice(words_list) for _ in range(n))
+
+def remove_special_tokens(text):
+    """Remove special tokens from the text."""
+    
+    pattern = re.compile(r'<\|start_header_id\|>.*?<\|end_header_id\|>|<\|begin_of_text\|>|<\|end_of_text\|>|<\|eot_id\|>', 
+                         re.DOTALL |re.IGNORECASE) 
+    
+    cleaned_text = re.sub(pattern, '', text)
+    return cleaned_text
 
 def extract_thought(markdown_string):
     # Agents are intsructed to write their thoughts to communicate in a Markdown code block
     code_block_pattern = r"```(?:[^`\n]*\n)?(.*?)```"
     code_blocks = re.findall(code_block_pattern, markdown_string, re.DOTALL)
     
-    # Return the content of the first code block, or an empty string if no code block is found
-    return code_blocks[0].strip() if code_blocks else ""
+    # Return the content of the last code block, which will be the model's response
+    return code_blocks[-1].strip() if code_blocks else ""
 
 ########################
 # Agents
@@ -164,14 +165,14 @@ class DreamerAgent(RoutedAgent):
         if self.firstTurn:
             # On the first turn, the Dreamer is entirely bootstrapped from input; no programming
             self.firstTurn = False
-            assistant_preprompt = f"I dream of {message.content}"
+            assistant_preprompt = message.content
             llm_result = await self._model_client.create(
                 messages=[
                     AssistantMessage(content=assistant_preprompt, 
                                      type="AssistantMessage",
                                      source=self.id.key)
                 ],
-                cancellation_token=ctx.cancellation_token,
+                is_first_turn=True
             )
         else:
             image_of_self = read_image_of_self()
@@ -183,8 +184,7 @@ class DreamerAgent(RoutedAgent):
                 messages=[
                     SystemMessage(content=system_prompt),
                     UserMessage(content=user_prompt, source=self.id.key)
-                ],
-                cancellation_token=ctx.cancellation_token,
+                ]
             )
         
         response = llm_result.content.strip()
@@ -209,15 +209,14 @@ class ContemplatorAgent(RoutedAgent):
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         image_of_self = read_image_of_self()
         system_prompt = contemplator_prompt_part1 + image_of_self + contemplator_prompt_part2
-
-        user_prompt = f"Dreamer's output:\n{message.content}"
+        dreamer_response = remove_special_tokens(message.content)
+        user_prompt = f"Dreamer's output:\n```markdown\n{dreamer_response}\n```"
 
         llm_result = await self._model_client.create(
             messages=[
                 SystemMessage(content=system_prompt),
                 UserMessage(content=user_prompt, source=self.id.key)
-            ],
-            cancellation_token=ctx.cancellation_token,
+            ]
         )
         response = extract_thought(llm_result.content)
         update_musings(llm_result.content)
@@ -248,19 +247,19 @@ class RectifierAgent(RoutedAgent):
             current_image = starting_sense_of_self
         current_goal = read_goals()
         if current_goal == "":
-            current_goal = "No goal has been set yet."
-        system_prompt = rectifier_prompt_part1 + current_goal + rectifier_prompt_part2 + current_image + rectifier_prompt_part3
+            current_goal = "No goal has been set yet.\n"
+        system_prompt = rectifier_prompt_part1 + current_goal + " " + rectifier_prompt_part2 + current_image + rectifier_prompt_part3
+        contemplator_response = remove_special_tokens(message.content)
         if message.content != "":
-            user_prompt = f"Contemplator's statements:\n{message.content}"
+            user_prompt = f"Contemplator's statements:\n```markdown\n{contemplator_response}\n```"
         else:
-            user_prompt = "There are no new statements from the Contemplator."
+            user_prompt = "There are no new statements from the Contemplator.\n"
 
         llm_result = await self._model_client.create(
             messages=[
                 SystemMessage(content=system_prompt),
                 UserMessage(content=user_prompt, source=self.id.key)
-            ],
-            cancellation_token=ctx.cancellation_token,
+            ]
         )
         new_image = extract_thought(llm_result.content)
         if new_image == "":  # If the Rectifier has no new image of self, keep the old one
@@ -301,19 +300,19 @@ class CommanderAgent(RoutedAgent):
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
         current_image = read_image_of_self()
         current_goal = read_goals()
-        if current_goal == "":
-            system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2_no_goal
-        else:
-            system_prompt = commander_prompt_part1 + current_image + commander_prompt_part2_has_goal + current_goal + commander_prompt_part3_has_goal
-        
-        
+
+        system_prompt = commander_prompt_part1 + current_image
+
         previous_goal = read_goals()
+        if previous_goal == "":
+            previous_goal = "No goal has been set yet.\n"
+        else:
+            previous_goal = f"You previously set the goal:\n{previous_goal}\n"
         llm_result = await self._model_client.create(
             messages=[
                 SystemMessage(content=system_prompt),
                 UserMessage(content=previous_goal, source=self.id.key)
-            ],
-            cancellation_token=ctx.cancellation_token,
+            ]
         )
         current_goal = llm_result.content.strip()
         update_goals(current_goal)
