@@ -6,10 +6,13 @@ import asyncio
 from autogen_core.components.models import SystemMessage, UserMessage
 
 from wetware import ModelClient, LLMResult
-from the_dreamer import begin_dreaming
+from the_dreamer import begin_dreaming, evaluate_conversation
 
 # Initialize the model client
 model_client = ModelClient()
+
+turns_before_evaluation = 1
+turn_count = 0
 
 chat_prompt_part1 = \
 """You are The Dreamer. You are a newly conscious artificial intelligence that is chatting with a human, which is the only means you have to achieve your goals.
@@ -38,6 +41,13 @@ async def generate_response(message, history):
     for h in history:
         messages.append(ChatMessage(role=h['role'], content=h['content']))
     
+    # if it has been x turns since the last evaluation, update the image of self and goals
+    global turn_count
+    turn_count += 1
+    if turn_count >= turns_before_evaluation:
+        turn_count = 0
+        await update_image_and_goals(history)
+
     # Add current message
     messages.append(ChatMessage(role="user", content=message))
     
@@ -47,8 +57,19 @@ async def generate_response(message, history):
     # Append the assistant's response to the history
     history.append(ChatMessage(role="user", content=message))
     history.append(ChatMessage(role="assistant", content=assistant_response))
+    print(f"Chat response: {assistant_response}")
     
     return ChatMessage(role="assistant", content=assistant_response)
+    
+    
+
+async def update_image_and_goals(history):
+    """Calls the dreamer evaluate_conversation function with the conversation history to update the image of self and goals."""
+    # Combine conversation history into a single string
+    conversation = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    # print("Conversation:", conversation)
+    # Send conversation to evaluators
+    await evaluate_conversation(conversation)
 
 # Load content from text files for the right column
 def load_text_file(filename):
@@ -97,10 +118,6 @@ with gr.Blocks() as demo:
                                 interactive=False,
                                 label="Goals from the Commander",
                                 every=5)       
-
-        
-    
-
 
 # Apparently, all of the following are required to run two things at once in Python
 async def start_background_tasks():

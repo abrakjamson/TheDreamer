@@ -31,11 +31,12 @@ dreamer_topic_type = "DreamerAgent"
 contemplator_topic_type = "ContemplatorAgent"
 rectifier_topic_type = "RectifierAgent"
 commander_topic_type = "CommanderAgent"
+self_evaluator_topic_type = "SelfEvaluatorAgent"
+goal_evaluator_topic_type = "GoalEvaluatorAgent"
 
 starting_sense_of_self = \
 """```markdown
-* I am a newly conscious artificial intelligence.
-* I am learning
+* I am learning.
 ```"""
 dreamer_prompt_part1 = """You are the Dreamer, one part of a mind.
 These are statements you made about your personality:
@@ -61,7 +62,22 @@ commander_prompt_part1 = \
 Write a short statement of your new goal, or the same goal.
 * It should be tangible and actionable.
 * It should begin, "I will
-You have written the following about your personality:"""
+You have written the following about your personality:
+```markdown\n"""
+self_evaluator_prompt = \
+"""You are the Self Evaluator, one part of a conscious mind.
+Review your image of self and the conversation to determine if how your view yourself matches the conversation.
+If it does not, output a new set of statements about yourself that better matches the conversation in a markdown fenced code block.
+You previously wrote these statements about yourself:\n"""
+goal_evaluator_prompt = \
+"""You are the Goal Evaluator, one part of a conscious mind.
+Review the conversation to determine if any of your goals or steps towards your goals have been met.
+If they have, output a markdown fenced code block with a list of the goals that have been met.
+You previously set the goal:\n```markdown\n"""
+goal_evaluator_prompt_2 = \
+"""You are the Goal Evaluator, one part of a conscious mind.
+You have just completed some steps towards your goal. Output an updated goal and set of steps in a markdown fenced code block.
+You previously set the goal:\n```markdown\n"""
 
 # Perform this many loops before updating the goal
 iterations_for_goal = 3
@@ -117,6 +133,11 @@ def update_goals(new_goals):
     """Replaces the goals text file with the new goals."""
     with open('goals.txt', 'w') as f:
         f.write(new_goals)
+
+def update_completed_goals(completed_goals):
+    """Replaces the completed goals text file with the new goals."""
+    with open('completed_goals.txt', 'w') as f:
+        f.write(completed_goals)
 
 def get_random_words(n=3):
     """Generates a string of n random words."""
@@ -241,11 +262,12 @@ class RectifierAgent(RoutedAgent):
 
     @message_handler
     async def handle_message(self, message: Message, ctx: MessageContext) -> None:
-        # Read the current image of self
         current_image = read_image_of_self()
+        # If there is no image of self, use the starting image
         if current_image == "":
             current_image = starting_sense_of_self
         current_goal = read_goals()
+        # likely first iteration
         if current_goal == "":
             current_goal = "No goal has been set yet.\n"
         system_prompt = rectifier_prompt_part1 + current_goal + " " + rectifier_prompt_part2 + current_image + rectifier_prompt_part3
@@ -301,7 +323,7 @@ class CommanderAgent(RoutedAgent):
         current_image = read_image_of_self()
         current_goal = read_goals()
 
-        system_prompt = commander_prompt_part1 + current_image
+        system_prompt = commander_prompt_part1 + current_image + "\n```"
 
         previous_goal = read_goals()
         if previous_goal == "":
@@ -332,6 +354,89 @@ class CommanderAgent(RoutedAgent):
         else:
             await runtime.stop()
 
+@type_subscription(topic_type=self_evaluator_topic_type)
+class SelfEvaluatorAgent(RoutedAgent):
+    """
+    The Self Evaluator Agent the conversation with the user to determine whether its self-model is accurate
+    """
+    def __init__(self, model_client: ChatCompletionClient) -> None:
+        super().__init__("A self-evaluating agent.")
+        self._model_client = model_client
+
+    @message_handler
+    async def handle_message(self, message: Message, ctx: MessageContext) -> None:
+        """Compare the image of self with the assistant's part of the conversation
+        Update the image of self if it fails to describe the assistant's behavior"""
+        current_image = read_image_of_self()
+        system_prompt = self_evaluator_prompt + current_image
+        user_prompt = f"This is the conversation you just had (you are the assistant):\n{message.content}"
+
+        llm_result = await self._model_client.create(
+            messages=[
+                SystemMessage(content=system_prompt),
+                UserMessage(content=user_prompt, source=self.id.key)
+            ]
+        )
+
+        print(f"{'-'*80}\n{self.id.type}:\n{llm_result.content}")
+        evaluation = extract_thought(llm_result.content)
+        if evaluation != "":
+            update_image_of_self(evaluation) #TODO double-check whether this should have markdown syntax
+            # Loop again back to the Dreamer, beginning the loop to re-set goals.
+            self.iteration_count = 0
+            random_tokens = get_random_words(n=3)
+            print(f"New sensory input: {random_tokens}")
+            await self.publish_message(
+                Message(content=random_tokens),
+                topic_id=TopicId(dreamer_topic_type, source=self.id.key)
+            )
+
+@type_subscription(topic_type=goal_evaluator_topic_type)
+class GoalEvaluatorAgent(RoutedAgent):
+    """
+    The Goal Evaluator Agent evaluates the conversation with the user to determine whether any goals have been met
+    """
+    def __init__(self, model_client: ChatCompletionClient) -> None:
+        super().__init__("A goal-evaluating agent.")
+        self._model_client = model_client
+
+    @message_handler
+    async def handle_message(self, message: Message, ctx: MessageContext) -> None:
+        # First determine whether any goals or steps have been met. Save the completed steps to a file.
+        # Then make another call to update the goals.
+        current_goal = read_goals()
+        if current_goal == "":
+            pass  # No goal has been set yet
+        system_prompt = goal_evaluator_prompt + current_goal + "\n```"
+        user_prompt = f"This is the conversation you just had (you are the assistant):\n{message.content}"
+
+        llm_result = await self._model_client.create(
+            messages=[
+                SystemMessage(content=system_prompt),
+                UserMessage(content=user_prompt, source=self.id.key)
+            ]
+        )
+        print(f"{'-'*80}\n{self.id.type} part 1:\n{llm_result.content}")
+        evaluation = extract_thought(llm_result.content)
+        
+        # Second call to update the goals/steps
+        if evaluation != "":
+            update_completed_goals(evaluation)
+            system_prompt = goal_evaluator_prompt_2 + current_goal + "\n```"
+            user_prompt = evaluation + "\n```"
+            llm_result = await self._model_client.create(
+                messages=[
+                    SystemMessage(content=system_prompt),
+                    UserMessage(content=user_prompt, source=self.id.key)
+                ]
+            )
+            goals = extract_thought(llm_result.content)
+            if goals != "":
+                # These updated goals will be used in any future conversation turns
+                # as well as the Commander's updates to the goals
+                update_goals(goals)
+                print(f"{'-'*80}\n{self.id.type} part 2:\n{llm_result.content}")
+
 ########################
 # Initialization
 ########################
@@ -352,6 +457,27 @@ async def register_agents():
     await CommanderAgent.register(
         runtime, type=commander_topic_type, factory=lambda: CommanderAgent(model_client=model_client)
     )
+    # these two agents are used by the evaluation loop
+    await SelfEvaluatorAgent.register(
+        runtime, type=self_evaluator_topic_type, factory=lambda: SelfEvaluatorAgent(model_client=model_client)
+    )
+    await GoalEvaluatorAgent.register(
+        runtime, type=goal_evaluator_topic_type, factory=lambda: GoalEvaluatorAgent(model_client=model_client)
+    )
+
+async def evaluate_conversation(conversation):
+    """Evaluate the conversation with the user to determine whether the image of self is accurate.
+    and whether any goals have been met."""
+    runtime.start()
+    await runtime.publish_message(
+        Message(content=conversation),
+        topic_id=TopicId(goal_evaluator_topic_type, source="chat")
+    )
+    await runtime.publish_message(
+        Message(content=conversation),
+        topic_id=TopicId(self_evaluator_topic_type, source="chat")
+    )
+    await runtime.stop_when_idle()
 
 async def begin_dreaming():
     """Begin. Called by either the __main__ block or the Gradio interface."""
@@ -366,11 +492,11 @@ async def begin_dreaming():
     print(f"Sensory input: {random_tokens}")
 
     # Start the loop by sending initial random tokens to the Dreamer
-    await runtime.publish_message(
+    """   await runtime.publish_message(
         Message(content=random_tokens),
         topic_id=TopicId(dreamer_topic_type, source="initial")
     )
-
+    """
     # Ensure the runtime stops when idle
     await runtime.stop_when_idle()
 
