@@ -11,7 +11,7 @@ from the_dreamer import begin_dreaming, evaluate_conversation
 # Initialize the model client
 model_client = ModelClient()
 
-turns_before_evaluation = 1
+turns_before_evaluation = 3
 turn_count = 0
 
 chat_prompt_part1 = \
@@ -37,10 +37,20 @@ async def generate_response(message, history):
         load_text_file("image_of_self.txt")
     messages = [ChatMessage(role="system", content=prompt)]
     
-    # Add chat history
+    # Prepare history for use by LLM and add current turn
     for h in history:
         messages.append(ChatMessage(role=h['role'], content=h['content']))
+    messages.append(ChatMessage(role="user", content=message))
+    history.append({"role": "user", "content": message})
+
+    response = await model_client.create(messages, cancellation_token=None)
+    assistant_response = response.content
     
+    history.append({"role": "assistant", "content": assistant_response})
+    print(f"Chat response: {assistant_response}")
+    
+    yield ChatMessage(role="assistant", content=assistant_response)
+
     # if it has been x turns since the last evaluation, update the image of self and goals
     global turn_count
     turn_count += 1
@@ -48,18 +58,7 @@ async def generate_response(message, history):
         turn_count = 0
         await update_image_and_goals(history)
 
-    # Add current message
-    messages.append(ChatMessage(role="user", content=message))
-    
-    response = await model_client.create(messages, cancellation_token=None)
-    assistant_response = response.content
-    
-    # Append the assistant's response to the history
-    history.append(ChatMessage(role="user", content=message))
-    history.append(ChatMessage(role="assistant", content=assistant_response))
-    print(f"Chat response: {assistant_response}")
-    
-    return ChatMessage(role="assistant", content=assistant_response)
+    return
     
     
 

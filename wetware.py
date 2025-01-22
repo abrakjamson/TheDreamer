@@ -9,8 +9,8 @@ class LLMResult:
 
 class ModelClient:
     # Class attributes
-    model_name = "meta-llama/Llama-3.2-3B-Instruct"
-    #model_name = "neuralmagic/Meta-Llama-3.1-8B-Instruct-FP8"
+    #model_name = "meta-llama/Llama-3.2-3B-Instruct"
+    model_name = "neuralmagic/Meta-Llama-3.1-8B-Instruct-FP8"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
     device = "cuda" if torch.cuda.is_available() else "cpu"
